@@ -41,8 +41,9 @@ pluginManager.provide("characters", createPersistedCharacters(storage));
 pluginManager.provide("tags", createPersistedTags(storage));
 const connections = createPersistedConnections(storage, events);
 pluginManager.provide("connections", connections);
-pluginManager.provide("tokens", createTokens(api, connections));
-pluginManager.provide("worldinfo", createPersistedWorldInfo(storage, events));
+const tokens = createTokens(api, connections);
+pluginManager.provide("tokens", tokens);
+pluginManager.provide("worldinfo", createPersistedWorldInfo(storage, events, tokens, connections));
 pluginManager.provide("groups", createPersistedGroups(storage, events));
 pluginManager.provide(
   "chatBackups",

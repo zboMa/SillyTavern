@@ -5,7 +5,7 @@ import type { RegexCapability } from './regex';
 import type { PresetsCapability } from './presets';
 
 export type PromptPipelineCapability = {
-  buildSystemPrompt: (opts: { messages: string[]; chatSessionId?: string | null }) => string;
+  buildSystemPrompt: (opts: { messages: string[]; chatSessionId?: string | null; maxContextTokens?: number }) => Promise<string>;
   applyUserInput: (text: string) => string;
 };
 
@@ -16,7 +16,7 @@ export function createPromptPipeline(
   regex?: RegexCapability,
   presets?: PresetsCapability,
 ): PromptPipelineCapability {
-  function buildSystemPrompt(opts: { messages: string[]; chatSessionId?: string | null }) {
+  async function buildSystemPrompt(opts: { messages: string[]; chatSessionId?: string | null; maxContextTokens?: number }) {
     const wiState = worldinfo.getState();
     const globalIds = wiState.globalSelectedBookIds ?? [];
     const c = characters.getActive();
@@ -29,10 +29,11 @@ export function createPromptPipeline(
       scenario: (c as any)?.scenario ?? '',
       creatorNotes: (c as any)?.creatorNotes ?? '',
     };
-    const lore = worldinfo.buildLoreText({
+    const lore = await worldinfo.buildLoreText({
       selectedBookIds: selected,
       messages: opts.messages ?? [],
       globalScanData,
+      maxContextTokens: opts.maxContextTokens,
     });
 
     const master = presets?.getMaster?.() ?? {};

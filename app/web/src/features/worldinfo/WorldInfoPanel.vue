@@ -144,7 +144,7 @@ function removeEntry(e: WorldInfoEntry) {
           <input class="input input--sm" type="number" :value="state.settings.budgetPercent" @input="updateSettings({ budgetPercent: Number(($event.target as HTMLInputElement).value) })" />
         </label>
         <label class="field">
-          <span class="field__label">Budget cap (chars)</span>
+          <span class="field__label">Budget cap (tokens)</span>
           <input class="input input--sm" type="number" :value="state.settings.budgetCap" @input="updateSettings({ budgetCap: Number(($event.target as HTMLInputElement).value) })" />
         </label>
         <label class="check">
@@ -329,11 +329,18 @@ function removeEntry(e: WorldInfoEntry) {
         <div><span class="muted">Selected books:</span> <span class="mono">{{ explain.selectedBooks.join(', ') }}</span></div>
         <div><span class="muted">Matched entry ids:</span> <span class="mono">{{ explain.matchedEntryIds.join(', ') }}</span></div>
         <div>
-          <span class="muted">Budget used/cap (chars):</span>
-          <span class="mono">{{ explain.budgetUsedChars }}</span>/<span class="mono">{{ explain.budgetCapChars }}</span>
+          <span class="muted">Budget used/cap (tokens):</span>
+          <span class="mono">{{ explain.budgetUsedTokens }}</span>/<span class="mono">{{ explain.budgetCapTokens }}</span>
           <span v-if="explain.overflowed" class="pill pill--danger">overflow</span>
         </div>
         <div><span class="muted">Entries by source:</span> <span class="mono">{{ JSON.stringify(explain.entriesBySource) }}</span></div>
+      </div>
+      <div v-if="explain.matchedEntries?.length" class="explain__entries">
+        <div class="muted">Matched entries:</div>
+        <div v-for="e in explain.matchedEntries" :key="e.id" class="explain__entry mono">
+          <div><strong>{{ e.bookName || 'WorldInfo' }}</strong> · {{ e.source }} · {{ e.tokens }}t <span v-if="e.ignoreBudget">· ignoreBudget</span></div>
+          <div class="muted">{{ e.id }}</div>
+        </div>
       </div>
       <div class="explain__logs">
         <div v-for="(lines, id) in explain.logs" :key="id" class="explain__log">
@@ -425,6 +432,17 @@ function removeEntry(e: WorldInfoEntry) {
 .explain__logs {
   display: grid;
   gap: 10px;
+}
+.explain__entries {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.explain__entry {
+  border: 1px solid #222;
+  border-radius: 10px;
+  padding: 8px;
+  background: #0b0b0b;
 }
 .explain__log {
   border: 1px solid #222;

@@ -61,7 +61,13 @@ export function createGeneration(
 
       // WorldInfo engine expects message list; we keep this for future WI parity integration.
       const messagesForWi = baseMessages.map((m) => m.content);
-      const loreText = promptPipeline?.buildSystemPrompt({ messages: messagesForWi, chatSessionId: session.id }) ?? '';
+      const loreText = promptPipeline
+        ? await promptPipeline.buildSystemPrompt({
+            messages: messagesForWi,
+            chatSessionId: session.id,
+            maxContextTokens: (conn as any)?.maxContextTokens,
+          })
+        : '';
 
       // Preset auto-select (original behavior): if there is a preset with the same name as the active character/group, select it.
       const activeCharName = characters?.getActive?.()?.name ?? '';

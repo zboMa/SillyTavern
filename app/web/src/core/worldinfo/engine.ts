@@ -167,8 +167,8 @@ export type WIActivated = {
   matchedEntryIds: string[];
   explain: {
     logs: Record<string, string[]>;
-    budgetUsedChars: number;
-    budgetCapChars: number;
+    budgetUsedTokens: number;
+    budgetCapTokens: number;
     overflowed: boolean;
     entriesBySource: Record<string, number>;
   };
@@ -190,7 +190,7 @@ export function normalizeEntry(e: WorldInfoEntry): WIScanEntry {
   };
 }
 
-export function checkWorldInfo(params: {
+export async function checkWorldInfo(params: {
   entries: WIScanEntry[];
   settings: WorldInfoSettings & {
     minActivations?: number;
@@ -199,8 +199,10 @@ export function checkWorldInfo(params: {
   };
   messages: string[];
   globalScanData: WIGlobalScanData;
-}): WIActivated {
-  const { entries, settings, messages, globalScanData } = params;
+  maxContextTokens: number;
+  countTokens: (text: string) => Promise<number>;
+}): Promise<WIActivated> {
+  const { entries, settings, messages, globalScanData, maxContextTokens, countTokens } = params;
   const buffer = new WorldInfoBuffer(messages, globalScanData);
   const logs: Record<string, string[]> = {};
   const allActivated = new Map<string, WIScanEntry>();
@@ -208,8 +210,13 @@ export function checkWorldInfo(params: {
   const minActivations = settings.minActivations ?? 0;
   const minDepthMax = settings.minActivationsDepthMax ?? 0;
   const maxRecSteps = settings.maxRecursionSteps ?? 0;
-  const budgetCapChars = typeof (settings as any).budgetCap === 'number' && (settings as any).budgetCap > 0 ? Number((settings as any).budgetCap) : Number.POSITIVE_INFINITY;
-  let budgetUsedChars = 0;
+  const budgetPercent = typeof (settings as any).budgetPercent === 'number' ? Number((settings as any).budgetPercent) : 0;
+  let budget = Math.round((budgetPercent * maxContextTokens) / 100) || 1;
+  const budgetCapSetting = typeof (settings as any).budgetCap === 'number' && (settings as any).budgetCap > 0 ? Number((settings as any).budgetCap) : 0;
+  if (budgetCapSetting > 0 && budget > budgetCapSetting) budget = budgetCapSetting;
+
+  let tokenBudgetOverflowed = false;
+  let allActivatedText = '';
   let overflowed = false;
   const entriesBySource: Record<string, number> = {};
 
@@ -242,58 +249,89 @@ export function checkWorldInfo(params: {
         }
       }
 
+      activatedNow.add(entry);
+      logs[entry.id] = logs[entry.id] ?? [];
+      logs[entry.id].push(`candidate(score=${score},state=${scanState})`);
+    }
+
+    // budget checks happen after activation, in activation-order; this mirrors original behavior more closely.
+    let newEntries = [...activatedNow].sort((a, b) => sorted.indexOf(a) - sorted.indexOf(b));
+
+    // group scoring: when enabled, keep only the highest groupWeight per group unless groupOverride is true.
+    // Deterministic simplified behavior.
+    const useGroupScoring = Boolean((settings as any).useGroupScoring ?? false);
+    if (useGroupScoring) {
+      const bestByGroup = new Map<string, WIScanEntry>();
+      const keep = new Set<WIScanEntry>();
+      for (const e of newEntries) {
+        const group = String((e as any).group ?? '').trim();
+        const groupOverride = Boolean((e as any).groupOverride ?? false);
+        if (!group) {
+          keep.add(e);
+          continue;
+        }
+        if (groupOverride) {
+          keep.add(e);
+          continue;
+        }
+        const w = typeof (e as any).groupWeight === 'number' ? Number((e as any).groupWeight) : 100;
+        const existing = bestByGroup.get(group);
+        if (!existing) {
+          bestByGroup.set(group, e);
+          continue;
+        }
+        const ew = typeof (existing as any).groupWeight === 'number' ? Number((existing as any).groupWeight) : 100;
+        if (w > ew) bestByGroup.set(group, e);
+      }
+      for (const e of bestByGroup.values()) keep.add(e);
+      newEntries = newEntries.filter((e) => keep.has(e));
+    }
+    let ignoresBudgetRemaining = newEntries.filter((e) => Boolean((e as any).ignoreBudget ?? false)).length;
+    const textToScanTokens = await countTokens(allActivatedText);
+    let newContent = '';
+    const activatedThisPass = new Set<WIScanEntry>();
+    for (const entry of newEntries) {
       const ignoreBudget = Boolean((entry as any).ignoreBudget ?? false);
-      const contentLen = String(entry.content ?? '').length;
-      if (!ignoreBudget && budgetUsedChars + contentLen > budgetCapChars) {
-        overflowed = true;
-        logs[entry.id] = logs[entry.id] ?? [];
-        logs[entry.id].push(`skipped(budget_overflow cap=${budgetCapChars},used=${budgetUsedChars},need=${contentLen})`);
-        continue;
+      ignoresBudgetRemaining -= ignoreBudget ? 1 : 0;
+
+      if (tokenBudgetOverflowed && !ignoreBudget) {
+        if (ignoresBudgetRemaining > 0) continue;
+        break;
       }
 
-      // group scoring: when enabled, keep only the highest groupWeight per group unless groupOverride is true.
-      // We implement a simplified deterministic version here.
-      const useGroupScoring = Boolean((settings as any).useGroupScoring ?? false);
-      if (useGroupScoring) {
-        const group = String((entry as any).group ?? '').trim();
-        const groupOverride = Boolean((entry as any).groupOverride ?? false);
-        const groupWeight = typeof (entry as any).groupWeight === 'number' ? Number((entry as any).groupWeight) : 100;
-        if (group && !groupOverride) {
-          const existing = [...activatedNow].find((x) => String((x as any).group ?? '').trim() === group && !Boolean((x as any).groupOverride ?? false));
-          if (existing) {
-            const existingWeight = typeof (existing as any).groupWeight === 'number' ? Number((existing as any).groupWeight) : 100;
-            if (existingWeight >= groupWeight) {
-              logs[entry.id] = logs[entry.id] ?? [];
-              logs[entry.id].push(`skipped(group=${group},weight=${groupWeight} < existing=${existingWeight})`);
-              continue;
-            } else {
-              // replace weaker
-              activatedNow.delete(existing);
-            }
-          }
+      const content = String(entry.content ?? '');
+      newContent += `${content}\n`;
+      if (!ignoreBudget) {
+        const newTokens = await countTokens(newContent);
+        if (textToScanTokens + newTokens >= budget) {
+          tokenBudgetOverflowed = true;
+          overflowed = true;
+          logs[entry.id] = logs[entry.id] ?? [];
+          logs[entry.id].push(`skipped(budget_overflow budget=${budget},used=${textToScanTokens},need=${newTokens})`);
+          continue;
         }
       }
 
-      activatedNow.add(entry);
+      activatedThisPass.add(entry);
+      allActivatedText += `${content}\n`;
       allActivated.set(entry.id, entry);
       logs[entry.id] = logs[entry.id] ?? [];
-      logs[entry.id].push(`activated(score=${score},state=${scanState})`);
-      if (!ignoreBudget) budgetUsedChars += contentLen;
+      logs[entry.id].push(`accepted(state=${scanState})`);
       const src = String((entry as any).source ?? 'unknown');
       entriesBySource[src] = (entriesBySource[src] ?? 0) + 1;
     }
 
     // recursion: activated entries can inject their content for subsequent scans
-    if (settings.recursive && activatedNow.size > 0) {
+    if (settings.recursive && activatedThisPass.size > 0 && !tokenBudgetOverflowed) {
       scanState = scan_state.RECURSION;
-      for (const e of activatedNow) {
+      for (const e of activatedThisPass) {
         buffer.addRecurse(e.content);
       }
       continue;
     }
 
     // min activations: widen scan depth
-    if (!maxRecSteps && minActivations > 0 && allActivated.size < minActivations) {
+    if (!maxRecSteps && minActivations > 0 && allActivated.size < minActivations && !tokenBudgetOverflowed) {
       scanState = scan_state.MIN_ACTIVATIONS;
       buffer.advanceScan();
       const d = buffer.getDepth(settings);
@@ -306,6 +344,7 @@ export function checkWorldInfo(params: {
 
   const activated = [...allActivated.values()];
   const matchedEntryIds = activated.map((e) => e.id);
-  return { activated, matchedEntryIds, explain: { logs, budgetUsedChars, budgetCapChars: isFinite(budgetCapChars) ? budgetCapChars : 0, overflowed, entriesBySource } };
+  const usedTokens = await countTokens(allActivatedText);
+  return { activated, matchedEntryIds, explain: { logs, budgetUsedTokens: usedTokens, budgetCapTokens: budget, overflowed, entriesBySource } };
 }
 

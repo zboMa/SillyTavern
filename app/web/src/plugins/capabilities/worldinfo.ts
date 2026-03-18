@@ -1,5 +1,7 @@
 import type { KeyValueStorage } from './storage';
 import type { EventBus } from '../../core/events/EventBus';
+import type { TokensCapability } from './tokens';
+import type { ConnectionsCapability } from './connections';
 import type { WorldInfoBook, WorldInfoEntry, WorldInfoState, WorldInfoSettings } from '../../features/worldinfo/model';
 import { defaultWorldInfoState } from '../../features/worldinfo/model';
 import { checkWorldInfo, normalizeEntry } from '../../core/worldinfo/engine';
@@ -13,14 +15,27 @@ export type WorldInfoCapability = {
   setGlobalSelected: (bookIds: string[]) => void;
   upsertEntry: (bookId: string, entry: WorldInfoEntry) => void;
   removeEntry: (bookId: string, entryId: string) => void;
-  buildLoreText: (opts: { selectedBookIds: string[]; messages: string[]; globalScanData?: Record<string, unknown> }) => string;
+  buildLoreText: (opts: { selectedBookIds: string[]; messages: string[]; globalScanData?: Record<string, unknown>; maxContextTokens?: number }) => Promise<string>;
   explainLastBuild: () => {
     selectedBooks: string[];
     matchedEntryIds: string[];
-    budgetUsedChars: number;
-    budgetCapChars: number;
+    budgetUsedTokens: number;
+    budgetCapTokens: number;
     overflowed: boolean;
     entriesBySource: Record<string, number>;
+    matchedEntries: Array<{
+      id: string;
+      source: string;
+      bookId: string;
+      bookName: string;
+      tokens: number;
+      ignoreBudget: boolean;
+      useProbability: boolean;
+      probability: number | null;
+      group: string;
+      groupOverride: boolean;
+      groupWeight: number;
+    }>;
     logs: Record<string, string[]>;
   };
 };
@@ -39,15 +54,34 @@ function safeParse<T>(raw: string | null): T | null {
   }
 }
 
-export function createPersistedWorldInfo(storage: KeyValueStorage, events?: EventBus, key = 'worldinfo.v1'): WorldInfoCapability {
+export function createPersistedWorldInfo(
+  storage: KeyValueStorage,
+  events?: EventBus,
+  tokens?: TokensCapability,
+  connections?: ConnectionsCapability,
+  key = 'worldinfo.v1',
+): WorldInfoCapability {
   let state: WorldInfoState = defaultWorldInfoState();
   let lastExplain = {
     selectedBooks: [] as string[],
     matchedEntryIds: [] as string[],
-    budgetUsedChars: 0,
-    budgetCapChars: 0,
+    budgetUsedTokens: 0,
+    budgetCapTokens: 0,
     overflowed: false,
     entriesBySource: {} as Record<string, number>,
+    matchedEntries: [] as Array<{
+      id: string;
+      source: string;
+      bookId: string;
+      bookName: string;
+      tokens: number;
+      ignoreBudget: boolean;
+      useProbability: boolean;
+      probability: number | null;
+      group: string;
+      groupOverride: boolean;
+      groupWeight: number;
+    }>,
     logs: {} as Record<string, string[]>,
   };
   const emit = () => events?.emit('worldinfo.changed', {});
@@ -140,7 +174,7 @@ export function createPersistedWorldInfo(storage: KeyValueStorage, events?: Even
     save();
   }
 
-  function buildLoreText(opts: { selectedBookIds: string[]; messages: string[]; globalScanData?: Record<string, unknown> }) {
+  async function buildLoreText(opts: { selectedBookIds: string[]; messages: string[]; globalScanData?: Record<string, unknown>; maxContextTokens?: number }) {
     const selected = new Set(opts.selectedBookIds);
     const globalSelected = new Set(state.globalSelectedBookIds ?? []);
 
@@ -176,20 +210,52 @@ export function createPersistedWorldInfo(storage: KeyValueStorage, events?: Even
         break;
     }
 
-    const activated = checkWorldInfo({
+    const maxContextTokens = Number(opts.maxContextTokens ?? connections?.getActive?.()?.maxContextTokens ?? 8192);
+    const countTokens =
+      tokens?.countText ??
+      (async (t: string) => {
+        const s = String(t ?? '');
+        if (!s.trim()) return 0;
+        return Math.ceil(s.length / 3.35);
+      });
+
+    const activated = await checkWorldInfo({
       entries,
       settings: state.settings as any,
       messages: opts.messages,
       globalScanData: (opts.globalScanData ?? {}) as any,
+      maxContextTokens,
+      countTokens,
     });
+
+    const matchedEntries = [] as (typeof lastExplain)['matchedEntries'];
+    for (const e of activated.activated) {
+      const bookId = String((e as any)?.meta?.bookId ?? '');
+      const bookName = String((e as any)?.meta?.bookName ?? '');
+      const source = String((e as any)?.source ?? 'unknown');
+      matchedEntries.push({
+        id: e.id,
+        source,
+        bookId,
+        bookName,
+        tokens: await countTokens(String(e.content ?? '')),
+        ignoreBudget: Boolean((e as any).ignoreBudget ?? false),
+        useProbability: Boolean((e as any).useProbability ?? false),
+        probability: typeof (e as any).probability === 'number' ? Number((e as any).probability) : null,
+        group: String((e as any).group ?? ''),
+        groupOverride: Boolean((e as any).groupOverride ?? false),
+        groupWeight: typeof (e as any).groupWeight === 'number' ? Number((e as any).groupWeight) : 100,
+      });
+    }
 
     lastExplain = {
       selectedBooks: opts.selectedBookIds.slice(),
       matchedEntryIds: activated.matchedEntryIds,
-      budgetUsedChars: activated.explain.budgetUsedChars,
-      budgetCapChars: activated.explain.budgetCapChars,
+      budgetUsedTokens: activated.explain.budgetUsedTokens,
+      budgetCapTokens: activated.explain.budgetCapTokens,
       overflowed: activated.explain.overflowed,
       entriesBySource: activated.explain.entriesBySource,
+      matchedEntries,
       logs: activated.explain.logs,
     };
 
@@ -214,10 +280,9 @@ export function createPersistedWorldInfo(storage: KeyValueStorage, events?: Even
       }
     }
 
-    let out = lines.join('\n').trim();
-    // Final hard cap in chars (UI currently labels it chars); keep this as a safety net.
-    if (state.settings.budgetCap && state.settings.budgetCap > 0 && out.length > state.settings.budgetCap) {
-      out = out.slice(0, state.settings.budgetCap);
+    const out = lines.join('\n').trim();
+    if (activated.explain.overflowed && state.settings.overflowAlert) {
+      console.warn(`[WorldInfo] token budget reached (${activated.explain.budgetUsedTokens}/${activated.explain.budgetCapTokens})`);
     }
     return out;
   }

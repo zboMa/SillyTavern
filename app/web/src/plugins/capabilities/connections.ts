@@ -6,6 +6,7 @@ export type ConnectionProfile = {
   name: string;
   chatCompletionSource: string; // e.g. 'openai'
   model: string;
+  maxContextTokens?: number;
   reverseProxy?: string | null;
   proxyPassword?: string | null;
   includeReasoning?: boolean;
@@ -55,7 +56,7 @@ export function createPersistedConnections(storage: KeyValueStorage, events?: Ev
       activeId = typeof persisted.activeId === 'string' || persisted.activeId === null ? persisted.activeId : null;
     }
     if (!profiles.length) {
-      const p: ConnectionProfile = { id: crypto.randomUUID(), name: 'Default', chatCompletionSource: 'openai', model: 'gpt-3.5-turbo' };
+      const p: ConnectionProfile = { id: crypto.randomUUID(), name: 'Default', chatCompletionSource: 'openai', model: 'gpt-3.5-turbo', maxContextTokens: 8192 };
       profiles.push(p);
       activeId = p.id;
       save();

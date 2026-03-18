@@ -30,6 +30,7 @@ function createNew() {
     name: 'New profile',
     chatCompletionSource: 'openai',
     model: 'gpt-3.5-turbo',
+    maxContextTokens: 8192,
     reverseProxy: null,
     proxyPassword: null,
   };
@@ -90,6 +91,11 @@ async function ping() {
           <label class="field">
             <div class="label">Model</div>
             <input v-model="draft.model" class="input" type="text" placeholder="gpt-..." @blur="save" />
+          </label>
+
+          <label class="field">
+            <div class="label">Context size (tokens)</div>
+            <input v-model.number="draft.maxContextTokens" class="input" type="number" min="1" step="1" @blur="save" />
           </label>
 
           <label class="field">
