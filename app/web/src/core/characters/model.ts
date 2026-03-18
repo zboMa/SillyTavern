@@ -5,6 +5,47 @@ export type CharacterTag = {
   name: string;
 };
 
+export type CharacterDepthPrompt = {
+  depth: number;
+  prompt: string;
+  role: "system" | "user" | "assistant";
+};
+
+export type CharacterRegexScript = {
+  id: string;
+  scriptName?: string;
+  findRegex?: string;
+  replaceString?: string;
+  trimStrings?: string[];
+  placement?: number[];
+  disabled?: boolean;
+  markdownOnly?: boolean;
+  promptOnly?: boolean;
+  runOnEdit?: boolean;
+  substituteRegex?: number;
+  minDepth?: number;
+  maxDepth?: number;
+};
+
+export type CharacterEmbeddedWorldInfoEntry = {
+  keys: string[];
+  secondary_keys?: string[];
+  comment?: string;
+  content: string;
+  constant?: boolean;
+  selective?: boolean;
+  insertion_order?: number;
+  enabled?: boolean;
+  position?: string;
+  extensions?: Record<string, unknown>;
+  id?: number;
+};
+
+export type CharacterEmbeddedWorldInfoBook = {
+  name: string;
+  entries: CharacterEmbeddedWorldInfoEntry[];
+};
+
 export type CharacterCard = {
   id: CharacterId;
   name: string;
@@ -15,6 +56,15 @@ export type CharacterCard = {
   exampleMessages: string;
   creatorNotes: string;
   systemPrompt: string;
+  postHistoryInstructions: string;
+  creator: string;
+  alternateGreetings: string[];
+  talkativeness: number;
+  world: string;
+  depthPrompt: CharacterDepthPrompt | null;
+  regexScripts: CharacterRegexScript[];
+  characterBook: CharacterEmbeddedWorldInfoBook | null;
+  folder: string;
 
   // UX fields
   favorite: boolean;
@@ -32,4 +82,3 @@ export type CharacterCard = {
   createdAt: number;
   updatedAt: number;
 };
-

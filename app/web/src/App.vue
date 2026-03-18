@@ -1,76 +1,94 @@
 <script setup lang="ts">
-import { createPluginManager } from './plugins/manager';
-import { registerBuiltins } from './plugins/registerBuiltins';
-import PluginSlot from './plugins/ui/PluginSlot.vue';
-import { EventBus } from './core/events/EventBus';
-import { CommandRegistry } from './plugins/capabilities/commands';
-import { SettingsRegistry } from './plugins/capabilities/settings';
-import { BrowserStorage } from './plugins/capabilities/storage';
-import { createApiClient } from './core/http/ApiClient';
-import { createPersistedChat } from './plugins/capabilities/chat';
-import { createPersistedCharacters } from './plugins/capabilities/characters';
-import { createPersistedTags } from './plugins/capabilities/tags';
-import { createCharacterChatBinding } from './plugins/capabilities/bindings';
-import { createGeneration } from './plugins/capabilities/generation';
-import { createPersistedConnections } from './plugins/capabilities/connections';
-import { createTokens } from './plugins/capabilities/tokens';
-import { createPersistedWorldInfo } from './plugins/capabilities/worldinfo';
-import { createPersistedGroups } from './plugins/capabilities/groups';
-import { createChatBackups } from './plugins/capabilities/chatBackups';
-import { createSlash } from './plugins/capabilities/slash';
-import { createMacros } from './plugins/capabilities/macros';
-import { createPromptPipeline } from './plugins/capabilities/promptPipeline';
-import { createPersistedRegex } from './plugins/capabilities/regex';
-import { createPersistedQuickReply } from './plugins/capabilities/quickReply';
-import { createChatFiles } from './plugins/capabilities/chatFiles';
-import { createPersistedPresets } from './plugins/capabilities/presets';
+import { createPluginManager } from "./plugins/manager";
+import { registerBuiltins } from "./plugins/registerBuiltins";
+import PluginSlot from "./plugins/ui/PluginSlot.vue";
+import { EventBus } from "./core/events/EventBus";
+import { CommandRegistry } from "./plugins/capabilities/commands";
+import { SettingsRegistry } from "./plugins/capabilities/settings";
+import { BrowserStorage } from "./plugins/capabilities/storage";
+import { createApiClient } from "./core/http/ApiClient";
+import { createPersistedChat } from "./plugins/capabilities/chat";
+import { createPersistedCharacters } from "./plugins/capabilities/characters";
+import { createPersistedTags } from "./plugins/capabilities/tags";
+import { createCharacterChatBinding } from "./plugins/capabilities/bindings";
+import { createGeneration } from "./plugins/capabilities/generation";
+import { createPersistedConnections } from "./plugins/capabilities/connections";
+import { createTokens } from "./plugins/capabilities/tokens";
+import { createPersistedWorldInfo } from "./plugins/capabilities/worldinfo";
+import { createPersistedGroups } from "./plugins/capabilities/groups";
+import { createChatBackups } from "./plugins/capabilities/chatBackups";
+import { createSlash } from "./plugins/capabilities/slash";
+import { createMacros } from "./plugins/capabilities/macros";
+import { createPromptPipeline } from "./plugins/capabilities/promptPipeline";
+import { createPersistedRegex } from "./plugins/capabilities/regex";
+import { createPersistedQuickReply } from "./plugins/capabilities/quickReply";
+import { createChatFiles } from "./plugins/capabilities/chatFiles";
+import { createPersistedPresets } from "./plugins/capabilities/presets";
 
 const pluginManager = createPluginManager();
 
 // Core capabilities provided by the app (not by plugins)
 const events = new EventBus();
-pluginManager.provide('events', events);
-pluginManager.provide('commands', new CommandRegistry());
-pluginManager.provide('settings', new SettingsRegistry());
-const storage = new BrowserStorage('local');
-pluginManager.provide('storage', storage);
-const api = createApiClient('');
-pluginManager.provide('api', api);
-pluginManager.provide('chat', createPersistedChat(storage, 'chat.v1', events));
-pluginManager.provide('characters', createPersistedCharacters(storage));
-pluginManager.provide('tags', createPersistedTags(storage));
+pluginManager.provide("events", events);
+pluginManager.provide("commands", new CommandRegistry());
+pluginManager.provide("settings", new SettingsRegistry());
+const storage = new BrowserStorage("local");
+pluginManager.provide("storage", storage);
+const api = createApiClient("");
+pluginManager.provide("api", api);
+pluginManager.provide("chat", createPersistedChat(storage, "chat.v1", events));
+pluginManager.provide("characters", createPersistedCharacters(storage));
+pluginManager.provide("tags", createPersistedTags(storage));
 const connections = createPersistedConnections(storage, events);
-pluginManager.provide('connections', connections);
-pluginManager.provide('tokens', createTokens(api, connections));
-pluginManager.provide('worldinfo', createPersistedWorldInfo(storage, events));
-pluginManager.provide('groups', createPersistedGroups(storage, events));
-pluginManager.provide('chatBackups', createChatBackups(pluginManager.context().cap('chat'), pluginManager.context().cap('characters')));
-pluginManager.provide('slash', createSlash(pluginManager.context().cap('commands')));
-const macros = createMacros();
-pluginManager.provide('macros', macros);
-const regex = createPersistedRegex(storage, events);
-pluginManager.provide('regex', regex);
-pluginManager.provide('promptPipeline', createPromptPipeline(pluginManager.context().cap('worldinfo'), pluginManager.context().cap('characters'), macros, regex));
-pluginManager.provide('quickReply', createPersistedQuickReply(storage, events));
-pluginManager.provide('chatFiles' as any, createChatFiles(api));
-const presets = createPersistedPresets(storage, events);
-pluginManager.provide('presets' as any, presets);
+pluginManager.provide("connections", connections);
+pluginManager.provide("tokens", createTokens(api, connections));
+pluginManager.provide("worldinfo", createPersistedWorldInfo(storage, events));
+pluginManager.provide("groups", createPersistedGroups(storage, events));
 pluginManager.provide(
-  'bindings',
-  createCharacterChatBinding(
-    pluginManager.context().cap('chat'),
-    pluginManager.context().cap('characters'),
+  "chatBackups",
+  createChatBackups(
+    pluginManager.context().cap("chat"),
+    pluginManager.context().cap("characters"),
   ),
 );
 pluginManager.provide(
-  'generation',
+  "slash",
+  createSlash(pluginManager.context().cap("commands")),
+);
+const macros = createMacros();
+pluginManager.provide("macros", macros);
+const regex = createPersistedRegex(storage, events, "regex.v1", pluginManager.context().cap("characters"));
+pluginManager.provide("regex", regex);
+const presets = createPersistedPresets(storage, events);
+pluginManager.provide("presets" as any, presets);
+pluginManager.provide(
+  "promptPipeline",
+  createPromptPipeline(
+    pluginManager.context().cap("worldinfo"),
+    pluginManager.context().cap("characters"),
+    macros,
+    regex,
+    presets,
+  ),
+);
+pluginManager.provide("quickReply", createPersistedQuickReply(storage, events));
+pluginManager.provide("chatFiles" as any, createChatFiles(api));
+pluginManager.provide(
+  "bindings",
+  createCharacterChatBinding(
+    pluginManager.context().cap("chat"),
+    pluginManager.context().cap("characters"),
+  ),
+);
+pluginManager.provide(
+  "generation",
   createGeneration(
     api,
-    pluginManager.context().cap('chat'),
+    pluginManager.context().cap("chat"),
     connections,
-    pluginManager.context().cap('worldinfo'),
-    pluginManager.context().cap('characters'),
-    pluginManager.context().cap('promptPipeline'),
+    pluginManager.context().cap("worldinfo"),
+    pluginManager.context().cap("characters"),
+    pluginManager.context().cap("promptPipeline"),
     presets,
   ),
 );
@@ -80,9 +98,9 @@ pluginManager.start();
 
 const pluginCtx = pluginManager.context();
 
-const topbarItems = pluginManager.getSlot('topbar');
-const mainItems = pluginManager.getSlot('main');
-const rightItems = pluginManager.getSlot('right');
+const topbarItems = pluginManager.getSlot("topbar");
+const mainItems = pluginManager.getSlot("main");
+const rightItems = pluginManager.getSlot("right");
 </script>
 
 <template>
@@ -118,7 +136,15 @@ const rightItems = pluginManager.getSlot('right');
   min-height: 100vh;
   background: #111;
   color: #f5f5f5;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 .topbar {
   display: flex;
@@ -174,4 +200,3 @@ const rightItems = pluginManager.getSlot('right');
   gap: 12px;
 }
 </style>
-

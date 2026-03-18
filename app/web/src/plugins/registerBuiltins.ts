@@ -7,6 +7,7 @@ import { connectionsPlugin } from './builtins/connections';
 import { backupsPlugin } from './builtins/backups';
 import { regexPlugin } from './builtins/regex';
 import { quickReplyPlugin } from './builtins/quickReply';
+import { presetsPlugin } from './builtins/presets';
 
 export function registerBuiltins(manager: PluginManager) {
   manager.register(coreCommandsPlugin());
@@ -14,6 +15,7 @@ export function registerBuiltins(manager: PluginManager) {
   manager.register(worldInfoPlugin());
   manager.register(charactersPlugin());
   manager.register(connectionsPlugin());
+  manager.register(presetsPlugin());
   manager.register(backupsPlugin());
   manager.register(regexPlugin());
   manager.register(quickReplyPlugin());

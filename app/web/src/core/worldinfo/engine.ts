@@ -165,7 +165,13 @@ export class WorldInfoBuffer {
 export type WIActivated = {
   activated: WIScanEntry[];
   matchedEntryIds: string[];
-  explain: { logs: Record<string, string[]>; budgetUsedChars: number };
+  explain: {
+    logs: Record<string, string[]>;
+    budgetUsedChars: number;
+    budgetCapChars: number;
+    overflowed: boolean;
+    entriesBySource: Record<string, number>;
+  };
 };
 
 export function normalizeEntry(e: WorldInfoEntry): WIScanEntry {
@@ -202,6 +208,10 @@ export function checkWorldInfo(params: {
   const minActivations = settings.minActivations ?? 0;
   const minDepthMax = settings.minActivationsDepthMax ?? 0;
   const maxRecSteps = settings.maxRecursionSteps ?? 0;
+  const budgetCapChars = typeof (settings as any).budgetCap === 'number' && (settings as any).budgetCap > 0 ? Number((settings as any).budgetCap) : Number.POSITIVE_INFINITY;
+  let budgetUsedChars = 0;
+  let overflowed = false;
+  const entriesBySource: Record<string, number> = {};
 
   let scanState: number = scan_state.INITIAL;
   let step = 0;
@@ -212,14 +222,65 @@ export function checkWorldInfo(params: {
     if (maxRecSteps && step > maxRecSteps) break;
 
     const activatedNow = new Set<WIScanEntry>();
-    for (const entry of entries) {
+    // Deterministic iteration order; matches original rough behavior (sort by priority/order before checks).
+    const sorted = entries.slice().sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+    for (const entry of sorted) {
       if (!entry.enabled) continue;
       const score = buffer.getScore(entry, scanState, settings);
       if (score <= 0) continue;
+
+      // probability gate (0-100). If useProbability is false or probability is null, always pass.
+      const useProb = Boolean((entry as any).useProbability ?? false);
+      const prob = (entry as any).probability;
+      if (useProb && typeof prob === 'number' && isFinite(prob)) {
+        const p = Math.max(0, Math.min(100, Number(prob)));
+        const roll = Math.random() * 100;
+        if (roll > p) {
+          logs[entry.id] = logs[entry.id] ?? [];
+          logs[entry.id].push(`skipped(probability=${p},roll=${roll.toFixed(1)})`);
+          continue;
+        }
+      }
+
+      const ignoreBudget = Boolean((entry as any).ignoreBudget ?? false);
+      const contentLen = String(entry.content ?? '').length;
+      if (!ignoreBudget && budgetUsedChars + contentLen > budgetCapChars) {
+        overflowed = true;
+        logs[entry.id] = logs[entry.id] ?? [];
+        logs[entry.id].push(`skipped(budget_overflow cap=${budgetCapChars},used=${budgetUsedChars},need=${contentLen})`);
+        continue;
+      }
+
+      // group scoring: when enabled, keep only the highest groupWeight per group unless groupOverride is true.
+      // We implement a simplified deterministic version here.
+      const useGroupScoring = Boolean((settings as any).useGroupScoring ?? false);
+      if (useGroupScoring) {
+        const group = String((entry as any).group ?? '').trim();
+        const groupOverride = Boolean((entry as any).groupOverride ?? false);
+        const groupWeight = typeof (entry as any).groupWeight === 'number' ? Number((entry as any).groupWeight) : 100;
+        if (group && !groupOverride) {
+          const existing = [...activatedNow].find((x) => String((x as any).group ?? '').trim() === group && !Boolean((x as any).groupOverride ?? false));
+          if (existing) {
+            const existingWeight = typeof (existing as any).groupWeight === 'number' ? Number((existing as any).groupWeight) : 100;
+            if (existingWeight >= groupWeight) {
+              logs[entry.id] = logs[entry.id] ?? [];
+              logs[entry.id].push(`skipped(group=${group},weight=${groupWeight} < existing=${existingWeight})`);
+              continue;
+            } else {
+              // replace weaker
+              activatedNow.delete(existing);
+            }
+          }
+        }
+      }
+
       activatedNow.add(entry);
       allActivated.set(entry.id, entry);
       logs[entry.id] = logs[entry.id] ?? [];
       logs[entry.id].push(`activated(score=${score},state=${scanState})`);
+      if (!ignoreBudget) budgetUsedChars += contentLen;
+      const src = String((entry as any).source ?? 'unknown');
+      entriesBySource[src] = (entriesBySource[src] ?? 0) + 1;
     }
 
     // recursion: activated entries can inject their content for subsequent scans
@@ -245,7 +306,6 @@ export function checkWorldInfo(params: {
 
   const activated = [...allActivated.values()];
   const matchedEntryIds = activated.map((e) => e.id);
-  const budgetUsedChars = activated.reduce((s, e) => s + String(e.content ?? '').length, 0);
-  return { activated, matchedEntryIds, explain: { logs, budgetUsedChars } };
+  return { activated, matchedEntryIds, explain: { logs, budgetUsedChars, budgetCapChars: isFinite(budgetCapChars) ? budgetCapChars : 0, overflowed, entriesBySource } };
 }
 

@@ -53,8 +53,7 @@ export function createGeneration(
 
     try {
       const conn = connections?.getActive();
-      const loreText = promptPipeline?.buildSystemPrompt({ messages: messagesForWi, chatSessionId: session.id }) ?? '';
-      const preset = presets?.getActive?.() ?? null;
+      const apiId = conn?.chatCompletionSource ?? 'openai';
 
       const baseMessages = session.messages
         .filter((m) => m.id !== assistantMsgId) // exclude placeholder
@@ -62,13 +61,22 @@ export function createGeneration(
 
       // WorldInfo engine expects message list; we keep this for future WI parity integration.
       const messagesForWi = baseMessages.map((m) => m.content);
+      const loreText = promptPipeline?.buildSystemPrompt({ messages: messagesForWi, chatSessionId: session.id }) ?? '';
+
+      // Preset auto-select (original behavior): if there is a preset with the same name as the active character/group, select it.
+      const activeCharName = characters?.getActive?.()?.name ?? '';
+      if (activeCharName && presets?.autoSelectByName) {
+        presets.autoSelectByName(apiId, activeCharName);
+      }
+      const preset = presets?.getActive ? presets.getActive(apiId) : null;
+
       const messages = loreText
         ? [{ role: 'system' as const, content: loreText }, ...baseMessages]
         : baseMessages;
 
       const payload: any = {
         stream: true,
-        chat_completion_source: conn?.chatCompletionSource ?? 'openai',
+        chat_completion_source: apiId,
         model: conn?.model ?? 'gpt-3.5-turbo',
         reverse_proxy: conn?.reverseProxy ?? undefined,
         proxy_password: conn?.proxyPassword ?? undefined,
@@ -77,6 +85,10 @@ export function createGeneration(
         temperature: preset?.temperature ?? undefined,
         top_p: preset?.top_p ?? undefined,
         max_tokens: preset?.max_tokens ?? undefined,
+        presence_penalty: (preset as any)?.presence_penalty ?? undefined,
+        frequency_penalty: (preset as any)?.frequency_penalty ?? undefined,
+        seed: (preset as any)?.seed ?? undefined,
+        stop: Array.isArray((preset as any)?.stop) ? (preset as any).stop : undefined,
         messages,
       };
 

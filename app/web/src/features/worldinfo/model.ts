@@ -4,6 +4,9 @@ export type WorldInfoSettings = {
   budgetCap: number;
   recursive: boolean;
   includeNames: boolean;
+  characterStrategy: number; // world_info_insertion_strategy
+  useGroupScoring: boolean;
+  overflowAlert: boolean;
   caseSensitive: boolean;
   matchWholeWords: boolean;
   minActivations: number;
@@ -18,6 +21,12 @@ export type WorldInfoEntry = {
   content: string;
   enabled: boolean;
   priority: number;
+  ignoreBudget?: boolean;
+  probability?: number | null; // 0-100
+  useProbability?: boolean;
+  group?: string;
+  groupOverride?: boolean;
+  groupWeight?: number;
   // matching options (parity subset)
   caseSensitive?: boolean;
   matchWholeWords?: boolean;
@@ -56,6 +65,9 @@ export const defaultWorldInfoState = (): WorldInfoState => ({
     budgetCap: 0,
     recursive: false,
     includeNames: true,
+    characterStrategy: 1,
+    useGroupScoring: false,
+    overflowAlert: false,
     caseSensitive: false,
     matchWholeWords: false,
     minActivations: 0,

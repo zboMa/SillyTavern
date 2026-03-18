@@ -87,6 +87,9 @@ export function importCharacterFromTavernJson(data: unknown): CharacterCard | nu
   const name = payload.name ?? payload.char_name ?? d.name;
   if (!name) return null;
 
+  const ext = payload.extensions && typeof payload.extensions === 'object' ? payload.extensions : {};
+  const depthPromptRaw = ext?.depth_prompt && typeof ext.depth_prompt === 'object' ? ext.depth_prompt : null;
+
   const card = normalizeCharacter({
     name,
     description: payload.description ?? payload.char_persona ?? payload.persona ?? '',
@@ -96,9 +99,24 @@ export function importCharacterFromTavernJson(data: unknown): CharacterCard | nu
     exampleMessages: payload.mes_example ?? payload.exampleMessages ?? '',
     creatorNotes: payload.creator_notes ?? payload.creatorNotes ?? '',
     systemPrompt: payload.system_prompt ?? payload.systemPrompt ?? '',
+    postHistoryInstructions: payload.post_history_instructions ?? payload.postHistoryInstructions ?? '',
+    creator: payload.creator ?? '',
+    alternateGreetings: Array.isArray(payload.alternate_greetings) ? payload.alternate_greetings : [],
+    characterBook: payload.character_book && typeof payload.character_book === 'object' ? payload.character_book : null,
+    talkativeness: typeof ext?.talkativeness === 'number' ? ext.talkativeness : 0,
+    world: typeof ext?.world === 'string' ? ext.world : '',
+    depthPrompt: depthPromptRaw
+      ? {
+          depth: Number(depthPromptRaw.depth ?? 0),
+          prompt: String(depthPromptRaw.prompt ?? ''),
+          role: (['system', 'user', 'assistant'].includes(String(depthPromptRaw.role)) ? String(depthPromptRaw.role) : 'system') as any,
+        }
+      : null,
+    regexScripts: Array.isArray(ext?.regex_scripts) ? ext.regex_scripts : [],
     // tags may exist as array of strings
     tags: Array.isArray(payload.tags) ? payload.tags.map((t: any) => ({ id: String(t), name: String(t) })) : [],
     avatarUrl: null,
+    favorite: Boolean(ext?.fav ?? false),
   });
 
   return card;
@@ -252,8 +270,19 @@ export function characterToTavernV2Json(card: CharacterCard): object {
       first_mes: card.firstMessage,
       mes_example: card.exampleMessages,
       creator_notes: card.creatorNotes,
+      creator: (card as any).creator ?? '',
       system_prompt: card.systemPrompt,
+      post_history_instructions: (card as any).postHistoryInstructions ?? '',
+      alternate_greetings: Array.isArray((card as any).alternateGreetings) ? (card as any).alternateGreetings : [],
+      character_book: (card as any).characterBook ?? null,
       tags: card.tags.map((t) => t.name),
+      extensions: {
+        talkativeness: (card as any).talkativeness ?? 0,
+        fav: Boolean((card as any).favorite ?? false),
+        world: (card as any).world ?? '',
+        depth_prompt: (card as any).depthPrompt ?? null,
+        regex_scripts: (card as any).regexScripts ?? [],
+      },
     },
   };
 }

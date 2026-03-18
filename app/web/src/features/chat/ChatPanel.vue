@@ -10,6 +10,7 @@ import type { TokensCapability } from '../../plugins/capabilities/tokens';
 import type { SlashCapability } from '../../plugins/capabilities/slash';
 import type { QuickReplyCapability } from '../../plugins/capabilities/quickReply';
 import type { CommandRegistry } from '../../plugins/capabilities/commands';
+import type { PresetsCapability } from '../../plugins/capabilities/presets';
 
 const props = defineProps<{
   ctx: PluginContext;
@@ -24,6 +25,20 @@ const tokens = props.ctx.cap<TokensCapability>('tokens');
 const slash = props.ctx.cap<SlashCapability>('slash');
 const quickReply = props.ctx.cap<QuickReplyCapability>('quickReply');
 const commands = props.ctx.cap<CommandRegistry>('commands');
+const presets = props.ctx.cap<PresetsCapability>('presets' as any);
+
+function formatReasoning(raw: string): string {
+  const master = presets.getMaster?.() ?? {};
+  const tpl = (master as any).reasoning;
+  if (!tpl || typeof tpl !== 'object') return raw;
+  const prefix = String(tpl.prefix ?? '');
+  const sep = String(tpl.separator ?? '\n');
+  const suffix = String(tpl.suffix ?? '');
+  const content = String(raw ?? '');
+  if (!content.trim()) return content;
+  const lines = content.split(/\r?\n/);
+  return `${prefix}${lines.join(sep)}${suffix}`;
+}
 
 const tick = ref(0);
 let unsub: null | (() => void) = null;
@@ -208,6 +223,10 @@ function swipeNext(id: string) {
                 </template>
                 <template v-else>
                   {{ m.selectedSwipeIndex != null && Array.isArray(m.swipes) && m.swipes[m.selectedSwipeIndex] != null ? m.swipes[m.selectedSwipeIndex] : m.content }}
+                  <details v-if="m.reasoning && m.reasoning.trim()" class="reasoning">
+                    <summary>Reasoning</summary>
+                    <pre class="reasoning__pre">{{ formatReasoning(m.reasoning) }}</pre>
+                  </details>
                   <div class="msg__tools">
                     <button class="tool" type="button" @click="copy(m.content)">Copy</button>
                     <button class="tool" type="button" @click="startEditMessage(m.id, m.content)">Edit</button>
@@ -370,6 +389,20 @@ function swipeNext(id: string) {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+.reasoning {
+  margin-top: 8px;
+  border: 1px solid #222;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #0b0b0b;
+}
+.reasoning__pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
+  color: #c7c7c7;
 }
 .tool {
   background: #101010;

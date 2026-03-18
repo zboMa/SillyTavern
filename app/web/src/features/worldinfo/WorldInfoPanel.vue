@@ -92,6 +92,12 @@ function addEntry() {
     content: '',
     enabled: true,
     priority: 0,
+    ignoreBudget: false,
+    useProbability: false,
+    probability: null,
+    group: '',
+    groupOverride: false,
+    groupWeight: 100,
     selectiveLogic: 0,
     caseSensitive: undefined,
     matchWholeWords: undefined,
@@ -148,6 +154,22 @@ function removeEntry(e: WorldInfoEntry) {
         <label class="check">
           <input type="checkbox" :checked="state.settings.includeNames" @change="updateSettings({ includeNames: ($event.target as HTMLInputElement).checked })" />
           <span>Include book names</span>
+        </label>
+        <label class="field">
+          <span class="field__label">Insertion</span>
+          <select class="input input--logic" :value="state.settings.characterStrategy" @change="updateSettings({ characterStrategy: Number(($event.target as HTMLSelectElement).value) })">
+            <option :value="0">evenly</option>
+            <option :value="1">character_first</option>
+            <option :value="2">global_first</option>
+          </select>
+        </label>
+        <label class="check">
+          <input type="checkbox" :checked="state.settings.useGroupScoring" @change="updateSettings({ useGroupScoring: ($event.target as HTMLInputElement).checked })" />
+          <span>Group scoring</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" :checked="state.settings.overflowAlert" @change="updateSettings({ overflowAlert: ($event.target as HTMLInputElement).checked })" />
+          <span>Overflow alert</span>
         </label>
       </div>
       <div class="settings__row">
@@ -263,6 +285,38 @@ function removeEntry(e: WorldInfoEntry) {
                 </label>
               </div>
               <textarea class="textarea" :value="e.content" rows="3" placeholder="content" @input="updateEntry(e, { content: ($event.target as HTMLTextAreaElement).value })" />
+              <div class="entry__row entry__row--sub">
+                <label class="check">
+                  <input type="checkbox" :checked="e.ignoreBudget ?? false" @change="updateEntry(e, { ignoreBudget: ($event.target as HTMLInputElement).checked })" />
+                  <span>Ignore budget</span>
+                </label>
+                <label class="check">
+                  <input type="checkbox" :checked="e.useProbability ?? false" @change="updateEntry(e, { useProbability: ($event.target as HTMLInputElement).checked })" />
+                  <span>Use prob</span>
+                </label>
+                <label class="field">
+                  <span class="field__label">Prob%</span>
+                  <input
+                    class="input input--sm"
+                    type="number"
+                    :value="e.probability ?? ''"
+                    placeholder="100"
+                    @input="updateEntry(e, { probability: (($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value)) })"
+                  />
+                </label>
+                <label class="field">
+                  <span class="field__label">Group</span>
+                  <input class="input" :value="e.group ?? ''" placeholder="group name" @input="updateEntry(e, { group: ($event.target as HTMLInputElement).value })" />
+                </label>
+                <label class="check">
+                  <input type="checkbox" :checked="e.groupOverride ?? false" @change="updateEntry(e, { groupOverride: ($event.target as HTMLInputElement).checked })" />
+                  <span>Group override</span>
+                </label>
+                <label class="field">
+                  <span class="field__label">Weight</span>
+                  <input class="input input--sm" type="number" :value="e.groupWeight ?? 100" @input="updateEntry(e, { groupWeight: Number(($event.target as HTMLInputElement).value) })" />
+                </label>
+              </div>
             </div>
           </div>
         </template>
@@ -274,7 +328,12 @@ function removeEntry(e: WorldInfoEntry) {
       <div class="explain__meta">
         <div><span class="muted">Selected books:</span> <span class="mono">{{ explain.selectedBooks.join(', ') }}</span></div>
         <div><span class="muted">Matched entry ids:</span> <span class="mono">{{ explain.matchedEntryIds.join(', ') }}</span></div>
-        <div><span class="muted">Budget used (chars):</span> <span class="mono">{{ explain.budgetUsedChars }}</span></div>
+        <div>
+          <span class="muted">Budget used/cap (chars):</span>
+          <span class="mono">{{ explain.budgetUsedChars }}</span>/<span class="mono">{{ explain.budgetCapChars }}</span>
+          <span v-if="explain.overflowed" class="pill pill--danger">overflow</span>
+        </div>
+        <div><span class="muted">Entries by source:</span> <span class="mono">{{ JSON.stringify(explain.entriesBySource) }}</span></div>
       </div>
       <div class="explain__logs">
         <div v-for="(lines, id) in explain.logs" :key="id" class="explain__log">

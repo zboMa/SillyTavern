@@ -43,6 +43,23 @@ export function normalizeCharacter(input: Partial<CharacterCard>): CharacterCard
     exampleMessages: String(input.exampleMessages ?? ''),
     creatorNotes: String(input.creatorNotes ?? ''),
     systemPrompt: String(input.systemPrompt ?? ''),
+    postHistoryInstructions: String((input as any).postHistoryInstructions ?? ''),
+    creator: String((input as any).creator ?? ''),
+    alternateGreetings: Array.isArray((input as any).alternateGreetings)
+      ? ((input as any).alternateGreetings as any[]).map((x) => String(x ?? '')).filter(Boolean)
+      : [],
+    talkativeness: typeof (input as any).talkativeness === 'number' ? Number((input as any).talkativeness) : 0,
+    world: String((input as any).world ?? ''),
+    depthPrompt: (input as any).depthPrompt && typeof (input as any).depthPrompt === 'object'
+      ? {
+          depth: Number(((input as any).depthPrompt as any).depth ?? 0),
+          prompt: String(((input as any).depthPrompt as any).prompt ?? ''),
+          role: (['system', 'user', 'assistant'].includes(String(((input as any).depthPrompt as any).role)) ? String(((input as any).depthPrompt as any).role) : 'system') as any,
+        }
+      : null,
+    regexScripts: Array.isArray((input as any).regexScripts) ? ((input as any).regexScripts as any[]) : [],
+    characterBook: (input as any).characterBook && typeof (input as any).characterBook === 'object' ? ((input as any).characterBook as any) : null,
+    folder: String((input as any).folder ?? ''),
     favorite: Boolean(input.favorite ?? false),
     tags: Array.isArray(input.tags) ? (input.tags as any[]).map((t) => ({ id: String((t as any).id ?? (t as any).name ?? ''), name: String((t as any).name ?? '') })).filter((t) => t.name) : [],
     worldInfoId: (input.worldInfoId ?? null) as any,

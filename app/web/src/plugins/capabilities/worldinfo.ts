@@ -14,7 +14,15 @@ export type WorldInfoCapability = {
   upsertEntry: (bookId: string, entry: WorldInfoEntry) => void;
   removeEntry: (bookId: string, entryId: string) => void;
   buildLoreText: (opts: { selectedBookIds: string[]; messages: string[]; globalScanData?: Record<string, unknown> }) => string;
-  explainLastBuild: () => { selectedBooks: string[]; matchedEntryIds: string[]; budgetUsedChars: number; logs: Record<string, string[]> };
+  explainLastBuild: () => {
+    selectedBooks: string[];
+    matchedEntryIds: string[];
+    budgetUsedChars: number;
+    budgetCapChars: number;
+    overflowed: boolean;
+    entriesBySource: Record<string, number>;
+    logs: Record<string, string[]>;
+  };
 };
 
 type PersistedWorldInfoV1 = {
@@ -33,7 +41,15 @@ function safeParse<T>(raw: string | null): T | null {
 
 export function createPersistedWorldInfo(storage: KeyValueStorage, events?: EventBus, key = 'worldinfo.v1'): WorldInfoCapability {
   let state: WorldInfoState = defaultWorldInfoState();
-  let lastExplain = { selectedBooks: [] as string[], matchedEntryIds: [] as string[], budgetUsedChars: 0, logs: {} as Record<string, string[]> };
+  let lastExplain = {
+    selectedBooks: [] as string[],
+    matchedEntryIds: [] as string[],
+    budgetUsedChars: 0,
+    budgetCapChars: 0,
+    overflowed: false,
+    entriesBySource: {} as Record<string, number>,
+    logs: {} as Record<string, string[]>,
+  };
   const emit = () => events?.emit('worldinfo.changed', {});
 
   function save() {
@@ -126,36 +142,83 @@ export function createPersistedWorldInfo(storage: KeyValueStorage, events?: Even
 
   function buildLoreText(opts: { selectedBookIds: string[]; messages: string[]; globalScanData?: Record<string, unknown> }) {
     const selected = new Set(opts.selectedBookIds);
-    const lines: string[] = [];
+    const globalSelected = new Set(state.globalSelectedBookIds ?? []);
+
+    const globalEntries = [] as ReturnType<typeof normalizeEntry>[];
+    const characterEntries = [] as ReturnType<typeof normalizeEntry>[];
     for (const b of state.books) {
       if (!selected.has(b.id)) continue;
-      const entries = b.entries.map(normalizeEntry);
-      const activated = checkWorldInfo({
-        entries,
-        settings: state.settings as any,
-        messages: opts.messages,
-        globalScanData: (opts.globalScanData ?? {}) as any,
-      });
-
-      lastExplain = {
-        selectedBooks: opts.selectedBookIds.slice(),
-        matchedEntryIds: activated.matchedEntryIds,
-        budgetUsedChars: activated.explain.budgetUsedChars,
-        logs: activated.explain.logs,
-      };
-
-      if (!activated.activated.length) continue;
-      if (state.settings.includeNames) lines.push(`[WorldInfo:${b.name}]`);
-      for (const e of activated.activated.slice().sort((a, b2) => (b2.priority ?? 0) - (a.priority ?? 0))) {
-        lines.push(e.content);
+      const bucket = globalSelected.has(b.id) ? globalEntries : characterEntries;
+      for (const e of b.entries) {
+        bucket.push(
+          normalizeEntry({
+            ...e,
+            source: e.source ?? (globalSelected.has(b.id) ? 'global' : 'character'),
+            // keep book name for debugging/explain
+            meta: { ...(e as any).meta, bookId: b.id, bookName: b.name },
+          } as any),
+        );
       }
-      lines.push('');
     }
+
+    let entries: ReturnType<typeof normalizeEntry>[] = [];
+    const sortFn = (a: any, b: any) => (b.priority ?? 0) - (a.priority ?? 0);
+    switch (Number((state.settings as any).characterStrategy ?? 1)) {
+      case 0: // evenly
+        entries = [...globalEntries, ...characterEntries].sort(sortFn);
+        break;
+      case 2: // global_first
+        entries = [...globalEntries.sort(sortFn), ...characterEntries.sort(sortFn)];
+        break;
+      case 1: // character_first
+      default:
+        entries = [...characterEntries.sort(sortFn), ...globalEntries.sort(sortFn)];
+        break;
+    }
+
+    const activated = checkWorldInfo({
+      entries,
+      settings: state.settings as any,
+      messages: opts.messages,
+      globalScanData: (opts.globalScanData ?? {}) as any,
+    });
+
+    lastExplain = {
+      selectedBooks: opts.selectedBookIds.slice(),
+      matchedEntryIds: activated.matchedEntryIds,
+      budgetUsedChars: activated.explain.budgetUsedChars,
+      budgetCapChars: activated.explain.budgetCapChars,
+      overflowed: activated.explain.overflowed,
+      entriesBySource: activated.explain.entriesBySource,
+      logs: activated.explain.logs,
+    };
+
+    const lines: string[] = [];
+    if (activated.activated.length) {
+      // Group by bookName if includeNames is enabled; otherwise concatenate in activation order.
+      if (state.settings.includeNames) {
+        const byBook = new Map<string, string[]>();
+        for (const e of activated.activated) {
+          const bookName = String((e as any)?.meta?.bookName ?? 'WorldInfo');
+          const arr = byBook.get(bookName) ?? [];
+          arr.push(String(e.content ?? ''));
+          byBook.set(bookName, arr);
+        }
+        for (const [bookName, texts] of byBook.entries()) {
+          lines.push(`[WorldInfo:${bookName}]`);
+          for (const t of texts) lines.push(t);
+          lines.push('');
+        }
+      } else {
+        for (const e of activated.activated) lines.push(String(e.content ?? ''));
+      }
+    }
+
     let out = lines.join('\n').trim();
+    // Final hard cap in chars (UI currently labels it chars); keep this as a safety net.
     if (state.settings.budgetCap && state.settings.budgetCap > 0 && out.length > state.settings.budgetCap) {
       out = out.slice(0, state.settings.budgetCap);
     }
-    lastExplain = { ...lastExplain, budgetUsedChars: out.length };
     return out;
   }
 
