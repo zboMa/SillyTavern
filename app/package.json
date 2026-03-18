@@ -1,0 +1,11 @@
+{
+  "name": "@sillytavern/app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:web": "pnpm --filter @sillytavern/web dev",
+    "build:web": "pnpm --filter @sillytavern/web build",
+    "preview:web": "pnpm --filter @sillytavern/web preview"
+  }
+}
+
