@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted, ref } from "vue";
 import { createPluginManager } from "./plugins/manager";
 import { registerBuiltins } from "./plugins/registerBuiltins";
 import PluginSlot from "./plugins/ui/PluginSlot.vue";
@@ -24,6 +25,7 @@ import { createPersistedRegex } from "./plugins/capabilities/regex";
 import { createPersistedQuickReply } from "./plugins/capabilities/quickReply";
 import { createChatFiles } from "./plugins/capabilities/chatFiles";
 import { createPersistedPresets } from "./plugins/capabilities/presets";
+import WelcomePage from "./features/onboarding/WelcomePage.vue";
 
 const pluginManager = createPluginManager();
 
@@ -43,7 +45,10 @@ const connections = createPersistedConnections(storage, events);
 pluginManager.provide("connections", connections);
 const tokens = createTokens(api, connections);
 pluginManager.provide("tokens", tokens);
-pluginManager.provide("worldinfo", createPersistedWorldInfo(storage, events, tokens, connections));
+pluginManager.provide(
+  "worldinfo",
+  createPersistedWorldInfo(storage, events, tokens, connections),
+);
 pluginManager.provide("groups", createPersistedGroups(storage, events));
 pluginManager.provide(
   "chatBackups",
@@ -58,7 +63,12 @@ pluginManager.provide(
 );
 const macros = createMacros();
 pluginManager.provide("macros", macros);
-const regex = createPersistedRegex(storage, events, "regex.v1", pluginManager.context().cap("characters"));
+const regex = createPersistedRegex(
+  storage,
+  events,
+  "regex.v1",
+  pluginManager.context().cap("characters"),
+);
 pluginManager.provide("regex", regex);
 const presets = createPersistedPresets(storage, events);
 pluginManager.provide("presets" as any, presets);
@@ -102,9 +112,70 @@ const pluginCtx = pluginManager.context();
 const topbarItems = pluginManager.getSlot("topbar");
 const mainItems = pluginManager.getSlot("main");
 const rightItems = pluginManager.getSlot("right");
+
+type LegacySettings = {
+  firstRun?: boolean;
+  username?: string;
+  user_avatar?: string;
+  power_user?: {
+    personas?: Record<string, string>;
+    persona_descriptions?: Record<
+      string,
+      { description: string; position: number }
+    >;
+  };
+};
+
+const onboardingNeeded = ref(false);
+const onboardingName = ref("User");
+const legacySettings = ref<LegacySettings | null>(null);
+
+async function loadLegacySettings() {
+  try {
+    const data = await api.postJson<any>("/api/settings/get", {});
+    const raw = data?.settings;
+    if (typeof raw !== "string") return;
+    const parsed = JSON.parse(raw) as LegacySettings;
+    legacySettings.value = parsed;
+    onboardingNeeded.value = parsed?.firstRun === true;
+    onboardingName.value = String(parsed?.username || "User");
+  } catch {
+    // If the legacy settings cannot be loaded, skip onboarding in the rewrite.
+  }
+}
+
+async function saveOnboarding(name: string) {
+  const s = legacySettings.value;
+  if (!s) return;
+  const avatarId = String(s.user_avatar || "");
+  s.username = name;
+  s.firstRun = false;
+  if (!s.power_user) s.power_user = {};
+  if (!s.power_user.personas) s.power_user.personas = {};
+  if (!s.power_user.persona_descriptions)
+    s.power_user.persona_descriptions = {};
+  if (avatarId) {
+    s.power_user.personas[avatarId] = name;
+    s.power_user.persona_descriptions[avatarId] = {
+      description: "",
+      position: 0,
+    };
+  }
+  await api.postJson("/api/settings/save", s);
+  onboardingNeeded.value = false;
+}
+
+onMounted(() => {
+  void loadLegacySettings();
+});
 </script>
 
 <template>
+  <WelcomePage
+    v-if="onboardingNeeded"
+    :initialName="onboardingName"
+    @save="saveOnboarding"
+  />
   <div class="shell">
     <header class="topbar">
       <div class="brand">SillyTavern</div>

@@ -28,6 +28,16 @@ module.exports = {
             },
         },
         {
+            // Frontend (Vue/Vite) TypeScript files
+            files: ['app/web/src/**/*.ts', 'app/web/vite.config.ts', 'app/web/**/*.ts'],
+            env: {
+                browser: true,
+            },
+            parserOptions: {
+                sourceType: 'module',
+            },
+        },
+        {
             files: ['*.cjs'],
             parserOptions: {
                 sourceType: 'commonjs',
